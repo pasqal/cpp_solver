@@ -707,6 +707,38 @@ def build_layer_with_labels(graph, nodes, crs, number_segments=False, node_mappi
     return vl
 
 
+def load_qml_style(layer, qml_path):
+    """
+    Load a QML style file and apply it to the layer.
+    
+    Args:
+        layer: QgsVectorLayer to style.
+        qml_path: Path to the .qml file.
+    
+    Returns:
+        bool: True if style was loaded successfully, False otherwise.
+    """
+    import os
+    try:
+        # Get the plugin directory
+        plugin_dir = os.path.dirname(os.path.abspath(__file__))
+        qml_file = os.path.join(plugin_dir, qml_path)
+        
+        if os.path.exists(qml_file):
+            layer.loadNamedStyle(qml_file)
+            return True
+        else:
+            # Fallback: Try to load from the same directory as the script
+            qml_file = os.path.join(os.path.dirname(__file__), qml_path)
+            if os.path.exists(qml_file):
+                layer.loadNamedStyle(qml_file)
+                return True
+    except Exception as e:
+        print(f"Failed to load QML style: {e}")
+    
+    return False
+
+
 def build_symbol(layer):
     """
     Build a symbol for the result layer (red line with arrow markers).
