@@ -112,67 +112,6 @@ class NodeSelectionTool(QgsMapToolEmitPoint):
         pass
 
 
-class StartEndDialog(QDialog):
-    """
-    Dialog for selecting start and end nodes for an open path.
-    """
-    
-    def __init__(self, node_labels, parent=None):
-        """
-        Args:
-            node_labels: List of human-readable node labels (e.g., ['Node 1', 'Node 2'])
-        """
-        super().__init__(parent)
-        self.setWindowTitle("Select Start and End Points")
-        self.setLayout(QVBoxLayout())
-        self.node_labels = node_labels
-        
-        # Start node selection
-        start_layout = QHBoxLayout()
-        start_layout.addWidget(QLabel("Start Node:"))
-        self.start_combo = QComboBox()
-        self.start_combo.addItems(sorted(node_labels))
-        start_layout.addWidget(self.start_combo)
-        self.layout().addLayout(start_layout)
-        
-        # End node selection
-        end_layout = QHBoxLayout()
-        end_layout.addWidget(QLabel("End Node:"))
-        self.end_combo = QComboBox()
-        self.end_combo.addItems(sorted(node_labels))
-        end_layout.addWidget(self.end_combo)
-        self.layout().addLayout(end_layout)
-        
-        # Option for closed circuit
-        self.closed_check = QCheckBox("Closed circuit (start = end)")
-        self.closed_check.stateChanged.connect(self._on_closed_changed)
-        self.layout().addWidget(self.closed_check)
-        
-        # Buttons
-        button_layout = QHBoxLayout()
-        self.ok_button = QPushButton("OK")
-        self.cancel_button = QPushButton("Cancel")
-        button_layout.addWidget(self.ok_button)
-        button_layout.addWidget(self.cancel_button)
-        self.layout().addLayout(button_layout)
-        
-        self.ok_button.clicked.connect(self.accept)
-        self.cancel_button.clicked.connect(self.reject)
-    
-    def _on_closed_changed(self, state):
-        """If closed circuit is checked, disable end node selection."""
-        if state == 2:  # Checked
-            self.end_combo.setEnabled(False)
-        else:
-            self.end_combo.setEnabled(True)
-    
-    def get_selection(self):
-        """Return the selected start and end node labels."""
-        start = self.start_combo.currentText()
-        if self.closed_check.isChecked():
-            return start, start
-        else:
-            return start, self.end_combo.currentText()
 
 
 class CppSolver(QObject):
@@ -401,23 +340,8 @@ class CppSolver(QObject):
         self.component = component
         self.node_mapping = node_mapping
 
-        # Ask user how they want to select start/end points
-        reply = QMessageBox.question(
-            None,
-            "CPP Solver",
-            "How would you like to select start and end points?\n\n"
-            "1. Click on the map to select nodes (Recommended)\n"
-            "2. Choose from a list of node names",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
-
-        if reply == QMessageBox.Yes:
-            # Interactive selection on the map
-            self._start_interactive_selection()
-        else:
-            # Use the dialog with node list
-            self._start_dialog_selection(component, node_mapping)
+        # Start interactive selection on the map
+        self._start_interactive_selection()
 
     def _start_interactive_selection(self):
         """
@@ -444,88 +368,6 @@ class CppSolver(QObject):
             "If you want a closed circuit, select the same node twice."
         )
 
-    def _start_dialog_selection(self, component, node_mapping):
-        """
-        Start the dialog-based node selection.
-        """
-        # Get node labels for the dialog
-        node_labels = [label for label in node_mapping.values()]
-        if not node_labels:
-            QMessageBox.warning(None, "CPP Solver", "No nodes found in the graph.")
-            return
-        
-        dialog = StartEndDialog(node_labels)
-        if dialog.exec_() == QDialog.Accepted:
-            start_label, end_label = dialog.get_selection()
-            
-            # Map labels back to actual node identifiers
-            start_node = None
-            end_node = None
-            
-            for node, label in node_mapping.items():
-                if label == start_label:
-                    start_node = node
-                    break
-            
-            for node, label in node_mapping.items():
-                if label == end_label:
-                    end_node = node
-                    break
-            
-            if start_node is None or end_node is None:
-                QMessageBox.warning(None, "CPP Solver", "Could not find selected nodes in graph.")
-                return
-            
-            try:
-                eulerian_graph, nodes = postman.chinese_postman_path_with_start_end(
-                    component, start_node, end_node
-                )
-                # Map nodes back to labels for display
-                nodes = [node_mapping.get(node, str(node)) for node in nodes]
-            except ValueError as e:
-                QMessageBox.warning(None, "CPP Solver", str(e))
-                # Fall back to standard path
-                eulerian_graph, nodes = postman.single_chinese_postman_path(component)
-                nodes = [node_mapping.get(node, str(node)) for node in nodes]
-            
-            # Ask if user wants to number the segments
-            reply = QMessageBox.question(
-                None,
-                "CPP Solver",
-                "Do you want to number the segments in the output layer?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
-            number_segments = (reply == QMessageBox.Yes)
-
-            in_length = postman.edge_sum(component) / 1000.0
-            path_length = postman.edge_sum(eulerian_graph) / 1000.0
-            duplicate_length = path_length - in_length
-
-            new_layer = build_layer_with_labels(
-                eulerian_graph, nodes, layer.crs(), number_segments, node_mapping
-            )
-            # Try to load QML style, fall back to build_symbol if not found
-            if not load_qml_style(new_layer, 'cpp_solver.qml'):
-                symbol = build_symbol(new_layer)
-                new_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
-            
-            QgsProject.instance().addMapLayer(new_layer)
-
-            info = ""
-            info += f"Total length of roads: {in_length:.3f} km\n"
-            info += f"Total length of path: {path_length:.3f} km\n"
-            info += f"Length of sections visited twice: {duplicate_length:.3f} km\n"
-            
-            if number_segments:
-                info += f"Number of segments: {len(nodes) - 1}\n"
-                info += "Segments are numbered in the output layer.\n"
-            
-            info += "\n"
-            info += "(If the above values do not make sense, consider changing CRS.)\n"
-
-            QMessageBox.information(None, "CPP Solver", info)
-        
         # Reset stored data
         self.component = None
         self.node_mapping = None

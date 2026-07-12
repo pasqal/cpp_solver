@@ -490,10 +490,8 @@ def chinese_postman_path_with_start_end(graph, start=None, end=None):
     Find the Chinese Postman path with specified start and end nodes.
     
     This function extends the standard Chinese Postman algorithm to allow
-    specifying start and end nodes. If the graph already has an Eulerian path
-    between start and end, it will be returned directly. Otherwise, the
-    algorithm will find the best matching of odd-degree nodes that includes
-    start and end as endpoints.
+    specifying start and end nodes. If start and end are the same, it generates
+    a closed circuit. Otherwise, it generates an open path from start to end.
 
     Args:
         graph: Input graph.
@@ -522,91 +520,54 @@ def chinese_postman_path_with_start_end(graph, start=None, end=None):
     odd = odd_graph(graph)
     
     # If start and end are specified, we need to ensure they are the endpoints
-    # of the Eulerian path in the final graph
     if start is not None and end is not None:
-        # Force start and end to be odd-degree nodes in the odd graph
-        # by adding them if they're not already there
-        # FIX: Copy the list of nodes before iterating to avoid RuntimeError
-        existing_odd_nodes = list(odd.nodes())
+        # Pre-calculate all pairs shortest paths for odd nodes + start + end
+        all_odd_nodes = set(odd.nodes())
+        if start not in all_odd_nodes:
+            all_odd_nodes.add(start)
+        if end not in all_odd_nodes:
+            all_odd_nodes.add(end)
         
-        if start not in odd.nodes():
-            # Add start node to odd graph with edges to all existing odd nodes
-            for node in existing_odd_nodes:
-                if node != start:
-                    # Find shortest path from start to node in original graph
+        # Pre-calculate shortest paths between all pairs
+        shortest_paths = {}
+        for u in all_odd_nodes:
+            for v in all_odd_nodes:
+                if u < v:  # Avoid duplicate calculations
                     try:
-                        path = nx.shortest_path(graph, source=start, target=node, weight='weight')
-                        length = nx.shortest_path_length(graph, source=start, target=node, weight='weight')
-                        odd.add_edge(start, node, weight=-length, path=path)
+                        path = nx.shortest_path(graph, source=u, target=v, weight='weight')
+                        length = nx.shortest_path_length(graph, source=u, target=v, weight='weight')
+                        shortest_paths[(u, v)] = {'path': path, 'length': length}
+                        shortest_paths[(v, u)] = {'path': path[::-1], 'length': length}
                     except nx.NetworkXNoPath:
                         pass
         
-        # Update the list of existing nodes after adding start
-        existing_odd_nodes = list(odd.nodes())
+        # Create a complete graph of all odd nodes + start + end
+        odd_complete = nx.Graph()
+        for (u, v), data in shortest_paths.items():
+            odd_complete.add_edge(u, v, weight=-data['length'], path=data['path'])
         
-        if end not in odd.nodes():
-            for node in existing_odd_nodes:
-                if node != end:
-                    try:
-                        path = nx.shortest_path(graph, source=end, target=node, weight='weight')
-                        length = nx.shortest_path_length(graph, source=end, target=node, weight='weight')
-                        odd.add_edge(end, node, weight=-length, path=path)
-                    except nx.NetworkXNoPath:
-                        pass
+        # Find matching for other odd nodes (excluding start and end)
+        other_odd_nodes = [n for n in odd_complete.nodes() if n not in (start, end)]
         
-        # Now find a matching that connects start to end
-        # We need to ensure that start and end are matched together
-        # Strategy: Match other odd nodes among themselves, then force start-end matching
-        
-        # Create a copy of the odd graph to modify
-        odd_for_matching = odd.copy()
-        
-        # Get all odd nodes except start and end
-        other_odd_nodes = [n for n in odd_for_matching.nodes() if n not in (start, end)]
-        
-        # If there are other odd nodes, match them among themselves first
+        # Match other odd nodes among themselves
+        matching = []
         if other_odd_nodes:
-            # Find the best matching for the other odd nodes
-            other_odd_subgraph = odd_for_matching.subgraph(other_odd_nodes).copy()
-            other_matching = nx.max_weight_matching(other_odd_subgraph, maxcardinality=True)
-            
-            # Add the start-end edge to the matching
-            try:
-                start_end_path = nx.shortest_path(graph, source=start, target=end, weight='weight')
-                start_end_length = nx.shortest_path_length(graph, source=start, target=end, weight='weight')
-                # Add the start-end edge to the odd graph if not already present
-                if not odd_for_matching.has_edge(start, end):
-                    odd_for_matching.add_edge(start, end, weight=-start_end_length, path=start_end_path)
-                
-                # Combine the matchings: other_matching + (start, end)
-                matching = list(other_matching) + [(start, end)]
-            except nx.NetworkXNoPath:
-                # If no path exists between start and end, fall back to standard matching
-                matching = nx.max_weight_matching(odd_for_matching, maxcardinality=True)
-        else:
-            # Only start and end are odd nodes, match them directly
-            try:
-                start_end_path = nx.shortest_path(graph, source=start, target=end, weight='weight')
-                start_end_length = nx.shortest_path_length(graph, source=start, target=end, weight='weight')
-                if not odd_for_matching.has_edge(start, end):
-                    odd_for_matching.add_edge(start, end, weight=-start_end_length, path=start_end_path)
-                matching = [(start, end)]
-            except nx.NetworkXNoPath:
-                raise ValueError(f"No path exists between start node '{start}' and end node '{end}'")
+            other_subgraph = odd_complete.subgraph(other_odd_nodes).copy()
+            other_matching = nx.max_weight_matching(other_subgraph, maxcardinality=True)
+            matching.extend(other_matching)
+        
+        # Always add (start, end) to the matching
+        if start != end:
+            matching.append((start, end))
         
         # Build the Eulerian graph manually, skipping the (start, end) edge
-        # to ensure start and end remain odd-degree nodes
         eulerian_graph = nx.MultiGraph(graph)
-        
-        # Duplicate edges for all matched pairs EXCEPT (start, end)
         for u, v in matching:
             if (u == start and v == end) or (u == end and v == start):
-                # Skip the (start, end) pair - we don't want to duplicate this edge
-                # as it would make both nodes even-degree
-                continue
+                continue  # Skip to keep start and end as odd-degree nodes
             
-            if u in odd_for_matching.nodes() and v in odd_for_matching.nodes() and odd_for_matching.has_edge(u, v):
-                path = odd_for_matching[u][v]['path']
+            if (u, v) in shortest_paths:
+                path = shortest_paths[(u, v)]['path']
                 for i in range(len(path) - 1):
                     n1, n2 = path[i], path[i+1]
                     if eulerian_graph.has_edge(n1, n2):
@@ -617,7 +578,6 @@ def chinese_postman_path_with_start_end(graph, start=None, end=None):
         try:
             nodes = eulerian_path(eulerian_graph, start=start, end=end)
         except ValueError as e:
-            # If we still can't find a path, raise a more informative error
             odd_nodes_final = [n for n in eulerian_graph.nodes() if eulerian_graph.degree(n) % 2 == 1]
             raise ValueError(
                 f"Failed to create Eulerian path with start='{start}' and end='{end}'. "
@@ -629,6 +589,7 @@ def chinese_postman_path_with_start_end(graph, start=None, end=None):
         eulerian_graph, nodes = single_chinese_postman_path(graph)
     
     return eulerian_graph, nodes
+
 
 
 def number_path_segments(graph, nodes):
