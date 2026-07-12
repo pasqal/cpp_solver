@@ -267,8 +267,6 @@ class CppSolver(QObject):
         # Reset selection
         self.selected_start = None
         self.selected_end = None
-        self.component = None
-        self.node_mapping = None
 
     def run(self):
         """
@@ -376,11 +374,6 @@ class CppSolver(QObject):
             "Then click again to select the END node.\n\n"
             "If you want a closed circuit, select the same node twice."
         )
-
-        # Reset stored data
-        self.component = None
-        self.node_mapping = None
-
 
 def build_graph_with_labels(features):
     """
