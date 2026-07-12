@@ -37,6 +37,12 @@ cp *.py "$BUNDLE_DIR/"
 cp metadata.txt icon.png resources.qrc resources.py "$BUNDLE_DIR/"
 cp requirements.txt "$BUNDLE_DIR/"
 
+# Copy QML style file if it exists
+if [ -f "cpp_solver.qml" ]; then
+    cp cpp_solver.qml "$BUNDLE_DIR/"
+    echo "Copied cpp_solver.qml"
+fi
+
 # Note: We intentionally DO NOT copy the lib/ directory with the old networkx-1.7-py2.7.egg
 # because it is incompatible with Python 3.8+ and QGIS 3.x/4.x.
 echo "Skipping lib/ directory (old Python 2.7 .egg files are not needed for Python 3.8+)"

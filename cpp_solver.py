@@ -20,6 +20,7 @@ from qgis.core import (
     QgsProject,
     QgsSymbol,
     QgsSingleSymbolRenderer,
+    QgsStyle,
     QgsFeature,
     QgsField,
     QgsMapLayer,
@@ -294,8 +295,10 @@ class CppSolver(QObject):
         new_layer = build_layer_with_labels(
             eulerian_graph, nodes, crs, number_segments, self.node_mapping
         )
-        symbol = build_symbol(new_layer)
-        new_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+        # Try to load QML style, fall back to build_symbol if not found
+        if not load_qml_style(new_layer, 'cpp_solver.qml'):
+            symbol = build_symbol(new_layer)
+            new_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
         
         QgsProject.instance().addMapLayer(new_layer)
 
@@ -502,8 +505,10 @@ class CppSolver(QObject):
             new_layer = build_layer_with_labels(
                 eulerian_graph, nodes, layer.crs(), number_segments, node_mapping
             )
-            symbol = build_symbol(new_layer)
-            new_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+            # Try to load QML style, fall back to build_symbol if not found
+            if not load_qml_style(new_layer, 'cpp_solver.qml'):
+                symbol = build_symbol(new_layer)
+                new_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
             
             QgsProject.instance().addMapLayer(new_layer)
 

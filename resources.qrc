@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/plugins/cpp_solver" >
         <file>icon.png</file>
+        <file>cpp_solver.qml</file>
     </qresource>
 </RCC>
