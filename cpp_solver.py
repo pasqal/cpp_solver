@@ -224,15 +224,8 @@ class CppSolver(QObject):
             eulerian_graph, nodes = postman.single_chinese_postman_path(self.component)
             nodes = [self.node_mapping.get(node, str(node)) for node in nodes]
         
-        # Ask if user wants to number the segments
-        reply = QMessageBox.question(
-            None,
-            "CPP Solver",
-            "Do you want to number the segments in the output layer?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
-        number_segments = (reply == QMessageBox.Yes)
+        # Always number the segments
+        number_segments = True
 
         in_length = postman.edge_sum(self.component) / 1000.0
         path_length = postman.edge_sum(eulerian_graph) / 1000.0
@@ -255,9 +248,8 @@ class CppSolver(QObject):
         info += f"Total length of path: {path_length:.3f} km\n"
         info += f"Length of sections visited twice: {duplicate_length:.3f} km\n"
         
-        if number_segments:
-            info += f"Number of segments: {len(nodes) - 1}\n"
-            info += "Segments are numbered in the output layer.\n"
+        info += f"Number of segments: {len(nodes) - 1}\n"
+        info += "Segments are numbered in the output layer.\n"
         
         info += "\n"
         info += "(If the above values do not make sense, consider changing CRS.)\n"
