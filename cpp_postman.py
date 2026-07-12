@@ -595,7 +595,7 @@ def chinese_postman_path_with_start_end(graph, start=None, end=None):
                 raise ValueError(f"No path exists between start node '{start}' and end node '{end}'")
         
         # Build the Eulerian graph
-        eulerian_graph = build_eulerian_graph(graph, odd, matching)
+        eulerian_graph = build_eulerian_graph(graph, odd_for_matching, matching)
         
         # Find the Eulerian path
         try:
