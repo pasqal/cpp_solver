@@ -173,6 +173,15 @@ class CppSolver(QObject):
         """
         Called when a node is selected on the map.
         """
+        # Check if node_mapping is available
+        if self.node_mapping is None or self.component is None:
+            QMessageBox.warning(
+                None,
+                "CPP Solver",
+                "Graph data not available. Please restart the plugin."
+            )
+            return
+        
         if self.selected_start is None:
             # First selection: start node
             self.selected_start = node
