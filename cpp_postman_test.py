@@ -184,15 +184,15 @@ class TestPostman(unittest.TestCase):
         # Nodes 1 and 4 have degree 1 (odd)
         
         # Test with start and end as the odd nodes
-        # Note: The Chinese Postman algorithm may duplicate edges, so the path
-        # may not strictly start and end at the specified nodes in the Eulerian path.
-        # We just verify that the function runs without error and returns a valid path.
-        eulerian_graph, nodes = postman.chinese_postman_path_with_start_end(graph, start=1, end=4)
+        start_node = 1
+        end_node = 4
+        eulerian_graph, nodes = postman.chinese_postman_path_with_start_end(graph, start=start_node, end=end_node)
         
         # Check that the path is valid (non-empty)
         self.assertGreater(len(nodes), 0)
-        # Check that the graph has more edges than the original (due to duplication)
-        self.assertGreater(eulerian_graph.size(), graph.size())
+        # Check that the path starts with start and ends with end
+        self.assertEqual(nodes[0], start_node)
+        self.assertEqual(nodes[-1], end_node)
 
     def test_pairs(self):
         """

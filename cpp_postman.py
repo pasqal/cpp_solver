@@ -594,8 +594,24 @@ def chinese_postman_path_with_start_end(graph, start=None, end=None):
             except nx.NetworkXNoPath:
                 raise ValueError(f"No path exists between start node '{start}' and end node '{end}'")
         
-        # Build the Eulerian graph
-        eulerian_graph = build_eulerian_graph(graph, odd_for_matching, matching)
+        # Build the Eulerian graph manually, skipping the (start, end) edge
+        # to ensure start and end remain odd-degree nodes
+        eulerian_graph = nx.MultiGraph(graph)
+        
+        # Duplicate edges for all matched pairs EXCEPT (start, end)
+        for u, v in matching:
+            if (u == start and v == end) or (u == end and v == start):
+                # Skip the (start, end) pair - we don't want to duplicate this edge
+                # as it would make both nodes even-degree
+                continue
+            
+            if u in odd_for_matching.nodes() and v in odd_for_matching.nodes() and odd_for_matching.has_edge(u, v):
+                path = odd_for_matching[u][v]['path']
+                for i in range(len(path) - 1):
+                    n1, n2 = path[i], path[i+1]
+                    if eulerian_graph.has_edge(n1, n2):
+                        edge_data = graph.edges[n1, n2].copy()
+                        eulerian_graph.add_edge(n1, n2, **edge_data)
         
         # Find the Eulerian path
         try:
