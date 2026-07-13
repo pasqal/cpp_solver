@@ -465,6 +465,7 @@ class CppSolver(QObject):
             return
 
         # Build graph with human-readable node labels
+        # Only use start and end points of each feature (not intermediate vertices)
         graph, node_mapping = build_graph_with_labels(features)
         components = postman.graph_components(graph)
         
@@ -514,6 +515,8 @@ def build_graph_with_labels(features):
     """
     Build a NetworkX graph from QGIS features with human-readable node labels.
     
+    Only uses the start and end points of each line feature (not intermediate vertices).
+    
     Args:
         features: List of QgsFeature objects (line features).
     
@@ -532,12 +535,14 @@ def build_graph_with_labels(features):
         geom_single_type = QgsWkbTypes.isSingleType(geom.wkbType())
         
         if geom_single_type:
-            # Single part geometry
+            # Single part geometry - only use start and end points
             nodes = geom.asPolyline()
-            for start, end in postman.pairs(nodes):
-                length = d.measureLine(start, end)
-                start_node = (start.x(), start.y())
-                end_node = (end.x(), end.y())
+            if len(nodes) >= 2:
+                start_point = nodes[0]
+                end_point = nodes[-1]
+                length = d.measureLine(start_point, end_point)
+                start_node = (start_point.x(), start_point.y())
+                end_node = (end_point.x(), end_point.y())
                 
                 # Add nodes to graph if not already present
                 if start_node not in node_mapping:
@@ -549,13 +554,15 @@ def build_graph_with_labels(features):
                 
                 graph.add_edge(start_node, end_node, weight=length)
         else:
-            # Multi-part geometry
+            # Multi-part geometry - only use start and end points of each part
             lines = geom.asMultiPolyline()
             for line in lines:
-                for start, end in postman.pairs(line):
-                    length = d.measureLine(start, end)
-                    start_node = (start.x(), start.y())
-                    end_node = (end.x(), end.y())
+                if len(line) >= 2:
+                    start_point = line[0]
+                    end_point = line[-1]
+                    length = d.measureLine(start_point, end_point)
+                    start_node = (start_point.x(), start_point.y())
+                    end_node = (end_point.x(), end_point.y())
                     
                     # Add nodes to graph if not already present
                     if start_node not in node_mapping:
