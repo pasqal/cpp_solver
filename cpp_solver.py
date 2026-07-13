@@ -29,6 +29,9 @@ from qgis.core import (
     QgsGeometry,
     QgsDistanceArea,
     QgsSymbolLayerRegistry,
+    QgsSimpleMarkerSymbolLayer,
+    QgsCategorizedSymbolRenderer,
+    QgsRendererCategory,
     Qgis,
 )
 from qgis.gui import QgsMapToolEmitPoint
@@ -133,6 +136,7 @@ class CppSolver(QObject):
         self.selected_start = None
         self.selected_end = None
         self.selection_tool = None
+        self.nodes_layer = None  # Temporary layer for displaying nodes
 
     def initGui(self):
         """
@@ -166,6 +170,14 @@ class CppSolver(QObject):
             except:
                 pass
             self.selection_tool = None
+        
+        # Clean up nodes layer if it exists
+        if self.nodes_layer:
+            try:
+                QgsProject.instance().removeMapLayer(self.nodes_layer)
+            except:
+                pass
+            self.nodes_layer = None
         
         del self.action
 
@@ -260,6 +272,145 @@ class CppSolver(QObject):
         self.selected_start = None
         self.selected_end = None
 
+    def _display_nodes(self, component, node_mapping):
+        """
+        Display all nodes (odd and even) with their labels on the map.
+        
+        Args:
+            component: NetworkX graph component.
+            node_mapping: Dict mapping coordinate tuples to human-readable labels.
+        """
+        # Get the CRS from the map canvas
+        crs = self.iface.mapCanvas().mapSettings().destinationCrs()
+        
+        # Create a temporary point layer
+        s = QSettings()
+        old_validation = s.value("/Projections/defaultBehaviour", "useGlobal")
+        s.setValue("/Projections/defaultBehaviour", "useGlobal")
+        
+        vl = QgsVectorLayer("Point", "cpp_solver_nodes", "memory")
+        vl.setCrs(crs)
+        pr = vl.dataProvider()
+        
+        # Add fields for node attributes
+        fields = [
+            QgsField("node_id", QVariant.String),
+            QgsField("node_type", QVariant.String),
+            QgsField("degree", QVariant.Int),
+        ]
+        pr.addAttributes(fields)
+        vl.updateFields()
+        
+        # Calculate degrees for each node
+        degrees = dict(component.degree())
+        
+        # Add features for each node
+        features = []
+        for node, label in node_mapping.items():
+            if isinstance(node, tuple) and len(node) >= 2:
+                point = QgsPointXY(node[0], node[1])
+                geometry = QgsGeometry.fromPointXY(point)
+                
+                # Determine if node is odd or even
+                degree = degrees.get(node, 0)
+                node_type = "odd" if degree % 2 == 1 else "even"
+                
+                fet = QgsFeature()
+                fet.setGeometry(geometry)
+                fet.setAttributes([
+                    label,
+                    node_type,
+                    degree,
+                ])
+                features.append(fet)
+        
+        pr.addFeatures(features)
+        
+        # Restore original CRS behavior
+        s.setValue("/Projections/defaultBehaviour", old_validation)
+        
+        # Update layer's extent
+        vl.updateExtents()
+        
+        # Apply styling to the nodes layer
+        self._style_nodes_layer(vl)
+        
+        # Add layer to the project
+        QgsProject.instance().addMapLayer(vl)
+        
+        # Store reference to the layer
+        self.nodes_layer = vl
+        
+        # Count odd and even nodes
+        odd_count = sum(1 for node in component.nodes() if component.degree(node) % 2 == 1)
+        even_count = len(component.nodes()) - odd_count
+        
+        QMessageBox.information(
+            None,
+            "CPP Solver - Nodes Display",
+            f"Nodes displayed on the map:\n"
+            f"- Total nodes: {len(component.nodes())}\n"
+            f"- Odd degree nodes: {odd_count}\n"
+            f"- Even degree nodes: {even_count}\n\n"
+            f"Click on the map to select START and END nodes.\n"
+            f"Odd degree nodes are shown in red, even degree nodes in green."
+        )
+        
+        # Start interactive selection
+        self._start_interactive_selection()
+
+    def _style_nodes_layer(self, layer):
+        """
+        Apply styling to the nodes layer to show odd/even nodes differently.
+        
+        Args:
+            layer: QgsVectorLayer to style.
+        """
+        # Create symbols for odd and even nodes
+        odd_symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+        even_symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+        
+        # Create marker layers
+        odd_marker = QgsSimpleMarkerSymbolLayer()
+        odd_marker.setShape(QgsSimpleMarkerSymbolLayer.Circle)
+        odd_marker.setSize(3.0)
+        odd_marker.setFillColor(QColor(255, 0, 0))  # Red for odd
+        odd_marker.setStrokeColor(QColor(0, 0, 0))
+        odd_marker.setStrokeWidth(0.5)
+        
+        even_marker = QgsSimpleMarkerSymbolLayer()
+        even_marker.setShape(QgsSimpleMarkerSymbolLayer.Circle)
+        even_marker.setSize(3.0)
+        even_marker.setFillColor(QColor(0, 255, 0))  # Green for even
+        even_marker.setStrokeColor(QColor(0, 0, 0))
+        even_marker.setStrokeWidth(0.5)
+        
+        # Replace default layers
+        odd_symbol.deleteSymbolLayer(0)
+        odd_symbol.appendSymbolLayer(odd_marker)
+        
+        even_symbol.deleteSymbolLayer(0)
+        even_symbol.appendSymbolLayer(even_marker)
+        
+        # Create categories
+        category_odd = QgsRendererCategory("odd", odd_symbol, True)
+        category_even = QgsRendererCategory("even", even_symbol, True)
+        
+        # Create categorized renderer
+        renderer = QgsCategorizedSymbolRenderer("node_type")
+        renderer.addCategory(category_odd)
+        renderer.addCategory(category_even)
+        
+        # Set the renderer
+        layer.setRenderer(renderer)
+        
+        # Enable labels
+        layer.setCustomProperty("labeling", "pal")
+        layer.setCustomProperty("labeling/enabled", True)
+        layer.setCustomProperty("labeling/fieldName", "node_id")
+        layer.setCustomProperty("labeling/fontSize", 10)
+        layer.setCustomProperty("labeling/placement", 1)  # Around point
+
     def run(self):
         """
         Main method to execute the plugin logic.
@@ -314,6 +465,7 @@ class CppSolver(QObject):
             return
 
         # Build graph with human-readable node labels
+        # Only use start and end points of each feature (not intermediate vertices)
         graph, node_mapping = build_graph_with_labels(features)
         components = postman.graph_components(graph)
         
@@ -339,8 +491,8 @@ class CppSolver(QObject):
         self.component = component
         self.node_mapping = node_mapping
 
-        # Start interactive selection on the map
-        self._start_interactive_selection()
+        # Display nodes first, then start interactive selection
+        self._display_nodes(component, node_mapping)
 
     def _start_interactive_selection(self):
         """
@@ -358,18 +510,12 @@ class CppSolver(QObject):
         
         # Activate the tool
         self.iface.mapCanvas().setMapTool(self.selection_tool)
-        
-        QMessageBox.information(
-            None,
-            "CPP Solver",
-            "Click on the map to select the START node.\n"
-            "Then click again to select the END node.\n\n"
-            "If you want a closed circuit, select the same node twice."
-        )
 
 def build_graph_with_labels(features):
     """
     Build a NetworkX graph from QGIS features with human-readable node labels.
+    
+    Only uses the start and end points of each line feature (not intermediate vertices).
     
     Args:
         features: List of QgsFeature objects (line features).
@@ -389,12 +535,14 @@ def build_graph_with_labels(features):
         geom_single_type = QgsWkbTypes.isSingleType(geom.wkbType())
         
         if geom_single_type:
-            # Single part geometry
+            # Single part geometry - only use start and end points
             nodes = geom.asPolyline()
-            for start, end in postman.pairs(nodes):
-                length = d.measureLine(start, end)
-                start_node = (start.x(), start.y())
-                end_node = (end.x(), end.y())
+            if len(nodes) >= 2:
+                start_point = nodes[0]
+                end_point = nodes[-1]
+                length = d.measureLine(start_point, end_point)
+                start_node = (start_point.x(), start_point.y())
+                end_node = (end_point.x(), end_point.y())
                 
                 # Add nodes to graph if not already present
                 if start_node not in node_mapping:
@@ -406,13 +554,15 @@ def build_graph_with_labels(features):
                 
                 graph.add_edge(start_node, end_node, weight=length)
         else:
-            # Multi-part geometry
+            # Multi-part geometry - only use start and end points of each part
             lines = geom.asMultiPolyline()
             for line in lines:
-                for start, end in postman.pairs(line):
-                    length = d.measureLine(start, end)
-                    start_node = (start.x(), start.y())
-                    end_node = (end.x(), end.y())
+                if len(line) >= 2:
+                    start_point = line[0]
+                    end_point = line[-1]
+                    length = d.measureLine(start_point, end_point)
+                    start_node = (start_point.x(), start_point.y())
+                    end_node = (end_point.x(), end_point.y())
                     
                     # Add nodes to graph if not already present
                     if start_node not in node_mapping:
