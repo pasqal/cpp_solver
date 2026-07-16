@@ -393,8 +393,8 @@ class CppSolver(QObject):
         even_symbol.appendSymbolLayer(even_marker)
         
         # Create categories
-        category_odd = QgsRendererCategory("odd", odd_symbol, True)
-        category_even = QgsRendererCategory("even", even_symbol, True)
+        category_odd = QgsRendererCategory("odd", odd_symbol, "Odd", True)
+        category_even = QgsRendererCategory("even", even_symbol, "Even", True)
         
         # Create categorized renderer
         renderer = QgsCategorizedSymbolRenderer("node_type")
